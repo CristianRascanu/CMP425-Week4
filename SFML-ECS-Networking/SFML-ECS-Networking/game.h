@@ -10,9 +10,11 @@ public:
 	void HandleEvents(const std::optional<sf::Event> event);
 	void Update(float dt);
 	// Network update now gets a collection of tank messages for multiple tanks.
+	void JoinNetworkUpdate(float dt, TankJoinMessage data);
 	void NetworkUpdate(float dt, TankMessage data);
 	void Render(sf::RenderWindow &window);
-	void AddTank(std::string body_tex, std::string barrel_tex, sf::Vector2f position);
+	int AddTank(std::string body_tex, std::string barrel_tex, sf::Vector2f position);
+	void RemoveTank(int index);
 	TankMessage GetNetworkUpdate();
 
 private:

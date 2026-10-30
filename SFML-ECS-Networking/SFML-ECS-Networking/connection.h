@@ -11,4 +11,6 @@ struct Connection
 {
 	std::unique_ptr<sf::TcpSocket> socket;
 	ConnState state = Disconnected;
+	bool hasJoined = false;
+	int tankId = -1;
 };

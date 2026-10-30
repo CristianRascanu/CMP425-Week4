@@ -8,3 +8,30 @@ struct TankMessage {
 	float x, y;
 	sf::Angle barrelRotation, bodyRotation;
 };
+
+
+enum class TankColour {
+	Black,
+	Blue,
+	Green
+};
+
+inline const char* ColourName(TankColour c) {
+	switch (c) {
+	case TankColour::Black: return "black";
+	case TankColour::Blue: return "blue";
+	case TankColour::Green: return "green";
+	}
+	return "black";
+}
+
+inline std::string BodyKey(TankColour c) { return std::string("body_") + ColourName(c); }
+inline std::string BarrelKey(TankColour c) { return std::string("barrel_") + ColourName(c); }
+
+
+struct TankJoinMessage {
+	int id = 0;
+	TankColour bodyColour = TankColour::Blue;
+	TankColour barrelColour = TankColour::Black;
+};
+

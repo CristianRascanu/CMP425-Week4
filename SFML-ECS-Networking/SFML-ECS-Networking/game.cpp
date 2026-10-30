@@ -71,17 +71,29 @@ void Game::HandleEvents(const std::optional<sf::Event> event)
 
 void Game::Update(float dt)
 {
-	for (int i = 0; i < tanks.size(); i++) {
-		tanks.at(0)->Update(dt);
+	for (auto& tank : tanks) {
+		if (tank->active)
+			tank->Update(dt);
 	}
+}
+
+void Game::JoinNetworkUpdate(float dt,TankJoinMessage joinData) {
+	tanks.at(joinData.id)->bodyColour = joinData.bodyColour;
+	tanks.at(joinData.id)->barrelColour = joinData.barrelColour;
+	tanks.at(joinData.id)->Update(dt);
 }
 
 // Tank data now includes player id for Observer to update multiple players.
 void Game::NetworkUpdate(float dt, TankMessage data) {
+	if (data.id < 0 || data.id >= (int)tanks.size() || !tanks.at(data.id)->active) {
+		return;
+	}
+
 	// Force position updates from network data.
 	tanks.at(data.id)->position = { data.x, data.y };
 	tanks.at(data.id)->barrelRotation = { data.barrelRotation };
 	tanks.at(data.id)->bodyRotation = { data.bodyRotation };
+	
 	// Update tank with new position.
 	// NOTE: This assumets no inputs were detected and so the tank will only move according to 
 	// network updates. This is not ideal and prone to unexpected behaviour if game is extended
@@ -92,16 +104,23 @@ void Game::NetworkUpdate(float dt, TankMessage data) {
 void Game::Render(sf::RenderWindow& window)
 {
 	window.draw(*background);
-	for (int i = 0; i < tanks.size(); i++) {
-		tanks.at(i)->Render(window);
+	for (auto& tank : tanks) {
+		if (tank->active)
+			tank->Render(window);
 	}
 }
 
-void Game::AddTank(std::string body_tex, std::string barrel_tex, sf::Vector2f position)
+int Game::AddTank(std::string body_tex, std::string barrel_tex, sf::Vector2f position)
 {
-	std::unique_ptr<Tank> tank = std::make_unique<Tank>(Tank(textures[body_tex], textures[barrel_tex]));
+	auto tank = std::make_unique<Tank>(textures[body_tex], textures[barrel_tex]);
 	tank->position = position;
 	tanks.push_back(std::move(tank));
+	return (int)tanks.size() - 1;	
+}
+
+void Game::RemoveTank(int index) {
+	if (index >= 0 && index < (int)tanks.size())
+		tanks.at(index)->active = false;
 }
 
 TankMessage Game::GetNetworkUpdate()
@@ -110,3 +129,4 @@ TankMessage Game::GetNetworkUpdate()
 	// First value can be anything as we don't care about player ID for local Player updates.
 	return {0, tanks.at(0)->position.x, tanks.at(0)->position.y, tanks.at(0)->barrelRotation, tanks.at(0)->bodyRotation};
 }
+

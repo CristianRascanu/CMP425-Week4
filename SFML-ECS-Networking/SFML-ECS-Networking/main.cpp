@@ -13,6 +13,22 @@
  The Observer accepts multiple connections from players, and receives their tank position updates.
 */
 
+TankColour PromptColour(const std::string& prompt) {
+	while (true) {
+		Utils::printMsg("Choose " + prompt + " colour: 1 = Black, 2 = Blue, 3 = Green");
+		std::string line;
+		std::getline(std::cin, line);
+		if (!line.empty()) {
+			switch (line.at(0)) {
+			case '1': return TankColour::Black;
+			case '2': return TankColour::Blue;
+			case '3': return TankColour::Green;
+			}
+		}
+		Utils::printMsg("Invalid choice, try again.");
+	}
+}
+
 int main() {
 	bool is_observer = false;
 	unsigned short observer_port = 53000;
@@ -23,16 +39,20 @@ int main() {
 	std::string title_type = "";
 
 	bool ready = false;
+	TankJoinMessage joinMessage;
 
 	while (!ready) {
 		Utils::printMsg("Are we playing or observing? Enter 1 for Player, enter 2 for Observer:");
 		std::string input_line;
 		std::getline(std::cin, input_line);
 
+		
+
 		if (!input_line.empty() && input_line.at(0) == '1') {
-			Utils::printMsg("Player chosen, preparing window...");
 			title_type = "Player";
-			is_observer = false;
+			is_observer = false;	
+			joinMessage.bodyColour = PromptColour("body");
+			joinMessage.barrelColour = PromptColour("barrel");
 			ready = true;
 		}
 		else if (!input_line.empty() && input_line.at(0) == '2') {
@@ -127,17 +147,55 @@ int main() {
 				// Add new tank with blue body and black barrel at the centre of the window.
 				// FIXME: Ideally we should wait until the first receive gets some data about the trank
 				// position and colour before we add it to the Observer's game.
-				game.AddTank("body_blue", "barrel_black", { 320, 240 });
+				game.AddTank(BodyKey(joinMessage.bodyColour), BarrelKey(joinMessage.barrelColour), {320, 240});
 			}
 			
 			// Check which connections have some data waiting to be received from sockets.
 			if (selector.wait(sf::seconds(0.f))) {
 				// If at least one of the sockets is ready to receive, check which ones are ready.
 				for (int i = 0; i < player_connections.size(); i++) {
-					if (selector.isReady(*player_connections.at(i).socket))
+					Connection& conn = player_connections.at(i);
+
+					if (!selector.isReady(*conn.socket))
+						continue;
+
+					sf::Packet packet;
+					sf::Socket::Status status = conn.socket->receive(packet);
+
+					if (status == sf::Socket::Status::Done) {
+						if (!conn.hasJoined) {
+							std::uint8_t body, barrel;
+							if (packet >> body >> barrel && body <= 2 && barrel <= 2) {
+								conn.hasJoined = true;
+								conn.tankId = game.AddTank(BodyKey(static_cast<TankColour>(body)), BarrelKey(static_cast<TankColour>(barrel)), { 320, 240 });
+								Utils::printMsg("Player joined: body=" + std::to_string(body) + " barrel=" + std::to_string(barrel), success);
+							}
+							else {
+								Utils::printMsg("Couldn't get join packet", warning);
+							}
+						}
+						else {
+							TankMessage message;
+							message.id = conn.tankId;
+							float bodyAngleValue = 0.f, barrelAngleValue = 0.f;
+							if (packet >> message.x >> message.y >> bodyAngleValue >> barrelAngleValue) {
+								message.bodyRotation = sf::degrees(bodyAngleValue);
+								message.barrelRotation = sf::degrees(barrelAngleValue);
+								// Use the message data to update the game.
+								game.NetworkUpdate(dt, message);
+							}
+							else {
+								Utils::printMsg("Couldn't get tank update packet", warning);
+							}
+						}
+					}
+					else if (status == sf::Socket::Status::Disconnected) {
+						conn.state = Disconnected;
+					}
+					/*if (selector.isReady(*player_connections.at(i).socket))
 						player_connections.at(i).state = Ready;
 					else
-						player_connections.at(i).state = NotReady;
+						player_connections.at(i).state = NotReady;*/
 					// FIXME: We may not reset the state to NotReady if selector doesn't detect any
 					// changes on any of the sockets (outer if statement). Ensure you set it back to
 					// NotReady when you finished reading from the socket.
@@ -156,22 +214,51 @@ int main() {
 							+ ":"
 							+ std::to_string(player_connections.at(i).socket->getRemotePort()));
 
-						TankMessage message;
-						message.id = i;
-						float bodyAngleValue = message.bodyRotation.asDegrees();
-						float barrelAngleValue = message.barrelRotation.asDegrees();
+						Connection& conn = player_connections.at(i);
 
-						
-						// Read recieved data into TankMessage struct.
-						// FIXME: reading from packet can fail. Refer to documentation on how to
-						// handle errors and add error checking here.
-						if (packet >> message.x >> message.y >> bodyAngleValue >> barrelAngleValue) {
-							message.bodyRotation = sf::degrees(bodyAngleValue);
-							message.barrelRotation = sf::degrees(barrelAngleValue);
+						if (!conn.hasJoined) {
+							std::uint8_t body, barrel;
+							if (packet >> body >> barrel && body <= 2 && barrel <= 2) {
+								conn.hasJoined = true;
+								conn.tankId = game.AddTank(BodyKey(static_cast<TankColour>(body)), BarrelKey(static_cast<TankColour>(barrel)), { 320, 240 });
+								Utils::printMsg("Player joined: body=" + std::to_string(body) + " barrel=" + std::to_string(barrel), success);
 
-							// Use the message data to update the game.
-							game.NetworkUpdate(dt, message);
+							}
+							else {
+								Utils::printMsg("Couldn't get join packet", warning);
+							}
 						}
+						else {
+							TankMessage message;
+							message.id = conn.tankId;
+							float bodyAngleValue = 0.f, barrelAngleValue = 0.f;
+							if (packet >> message.x >> message.y >> bodyAngleValue >> barrelAngleValue) {
+								message.bodyRotation = sf::degrees(bodyAngleValue);
+								message.barrelRotation = sf::degrees(barrelAngleValue);
+								// Use the message data to update the game.
+								game.NetworkUpdate(dt, message);
+							}
+							else {
+								Utils::printMsg("Couldn't get tank update packet", warning);
+							}
+						}
+						
+						//TankMessage message;
+						//message.id = i;
+						//float bodyAngleValue = message.bodyRotation.asDegrees();
+						//float barrelAngleValue = message.barrelRotation.asDegrees();
+
+						//
+						//// Read recieved data into TankMessage struct.
+						//// FIXME: reading from packet can fail. Refer to documentation on how to
+						//// handle errors and add error checking here.
+						//if (packet >> message.x >> message.y >> bodyAngleValue >> barrelAngleValue) {
+						//	message.bodyRotation = sf::degrees(bodyAngleValue);
+						//	message.barrelRotation = sf::degrees(barrelAngleValue);
+
+						//	// Use the message data to update the game.
+						//	game.NetworkUpdate(dt, message);
+						//}
 											
 					}
 					else if (status == sf::Socket::Status::Disconnected) {
@@ -184,6 +271,13 @@ int main() {
 						// FIXME: But we should also remove the inactive connection from the vector and remove the tank from the game.
 						player_connections.at(i).state = Disconnected;
 									
+					}
+					for (int i = (int)player_connections.size() - 1; i >= 0; i--) {
+						if (player_connections.at(i).state == Disconnected) {
+							selector.remove(*player_connections.at(i).socket);
+							game.RemoveTank(player_connections.at(i).tankId);
+							player_connections.erase(player_connections.begin() + i);
+						}
 					}
 				}
 			}
@@ -201,8 +295,20 @@ int main() {
 				if (status == sf::Socket::Status::Done) {
 					Utils::printMsg("Connected!", MessageType::success);
 					is_connected = true;
+					game.AddTank(BodyKey(joinMessage.bodyColour), BarrelKey(joinMessage.barrelColour), { 320, 240 });
+					
+					sf::Packet joinPacket;
+					joinPacket << static_cast<std::uint8_t>(joinMessage.bodyColour) << static_cast<std::uint8_t>(joinMessage.barrelColour);
+					sf::Socket::Status status = player_socket->send(joinPacket);
+					if (status != sf::Socket::Status::Done) {
+						Utils::printMsg("Failed to send colours to Observer", error);
+					}
+					else {
+						Utils::printMsg("Sent join message to Observer", success);
+						game.JoinNetworkUpdate(dt, joinMessage);
+					}
 					// Add new tank with blue body and black barrel at the centre of the window.
-					game.AddTank("body_blue", "barrel_black", { 320, 240 });
+					//game.AddTank("body_blue", "barrel_black", { 320, 240 });
 				}
 				else {
 					Utils::printMsg("Failed to connect to observer. Will try again later.", MessageType::warning);
@@ -243,4 +349,5 @@ int main() {
 
 	return 0;
 }
+
 

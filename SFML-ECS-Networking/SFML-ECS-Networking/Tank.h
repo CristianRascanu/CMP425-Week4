@@ -15,6 +15,10 @@ public:
 	sf::Vector2f position = {0.f, 0.f};
 	sf::Angle barrelRotation = sf::degrees(0);
 	sf::Angle bodyRotation = sf::degrees(0);;
+	TankColour bodyColour = TankColour::Blue;
+	TankColour barrelColour = TankColour::Black;
+	bool active = true;
+
 
 	struct {
 		bool forward = false;
